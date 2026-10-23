@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Admin | Pizza Vorbestellung</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍕</text></svg>">
+  <link rel="stylesheet" href="/css/app.css">
+  <script defer src="/js/admin.js"></script>
+  <script defer src="/vendor/alpine.min.js"></script>
+</head>
+<body class="min-h-screen bg-stone-100 font-sans text-stone-800 antialiased">
+<div x-data="admin" x-cloak>
+
+  <!-- Toasts -->
+  <div class="fixed top-4 right-4 left-4 z-[70] flex flex-col items-end gap-2 sm:left-auto sm:w-96" aria-live="polite">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="w-full rounded-lg px-4 py-3 text-sm shadow-lg ring-1"
+           :class="{
+             'bg-emerald-50 text-emerald-900 ring-emerald-200': t.type === 'success',
+             'bg-amber-50 text-amber-900 ring-amber-300': t.type === 'warning',
+             'bg-brand-50 text-brand-900 ring-brand-200': t.type === 'error',
+             'bg-white text-stone-800 ring-stone-200': t.type === 'info'
+           }">
+        <div class="flex items-start gap-3">
+          <span x-text="{ success: '✓', warning: '⚠', error: '✕', info: 'ℹ' }[t.type]"></span>
+          <p class="flex-1 break-words" x-text="t.message"></p>
+          <button type="button" class="text-stone-400 hover:text-stone-700" @click="dismiss(t.id)" aria-label="Schließen">✕</button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div x-show="!ready" class="py-24 text-center text-stone-500">Lade …</div>
+
+  <!-- Login -->
+  <div x-show="ready && !authenticated" class="flex min-h-screen items-center justify-center p-4">
+    <form class="card w-full max-w-sm p-6" @submit.prevent="login()">
+      <div class="mb-5 flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand-50 text-xl ring-1 ring-brand-100">🍕</div>
+        <div>
+          <h1 class="font-bold text-stone-900">Admin Bereich</h1>
+          <p class="text-sm text-stone-500">Bitte anmelden</p>
+        </div>
+      </div>
+      <div x-show="loginForm.error" class="mb-4 rounded-lg bg-brand-50 p-3 text-sm text-brand-800" x-text="loginForm.error"></div>
+      <label class="label" for="l-user">Benutzer</label>
+      <input id="l-user" class="input mb-3" x-model="loginForm.username" autocomplete="username" required>
+      <label class="label" for="l-pass">Passwort</label>
+      <input id="l-pass" type="password" class="input mb-5" x-model="loginForm.password" autocomplete="current-password" required>
+      <button class="btn-primary w-full" :disabled="loginForm.busy">Anmelden</button>
+    </form>
+  </div>
+
+  <!-- App -->
+  <div x-show="ready && authenticated">
+    <header class="bg-stone-900 text-white">
+      <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+        <div class="flex items-center gap-2 font-bold">🍕 <span x-text="settings?.shop_name || 'Pizza'"></span> <span class="font-normal text-stone-400">Admin</span></div>
+        <nav class="no-scrollbar order-3 -mx-1 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
+          <template x-for="[key, label] in [['orders', 'Bestellungen'], ['menu', 'Speisekarte'], ['settings', 'Einstellungen & Zeitslots']]" :key="key">
+            <button type="button" @click="tab = key"
+                    class="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition"
+                    :class="tab === key ? 'bg-white text-stone-900' : 'text-stone-300 hover:bg-white/10 hover:text-white'"
+                    x-text="label"></button>
+          </template>
+        </nav>
+        <div class="ml-auto flex items-center gap-3 text-sm">
+          <span class="flex items-center gap-1.5" :title="live ? 'Live Verbindung aktiv' : 'Keine Live Verbindung, Aktualisierung jede Minute'">
+            <span class="h-2.5 w-2.5 rounded-full" :class="live ? 'bg-emerald-400' : 'bg-stone-500'"></span>
+            <span class="text-stone-300" x-text="live ? 'Live' : 'Offline'"></span>
+          </span>
+          <a href="/" target="_blank" class="text-stone-300 hover:text-white">Shop ↗</a>
+          <button type="button" class="text-stone-300 hover:text-white" @click="logout()">Abmelden</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-[1600px] px-4 py-6">
+
+      <!-- ===================== TAB 1: BESTELLUNGEN ===================== -->
+      <section x-show="tab === 'orders'">
+        <div class="card mb-5 flex flex-wrap items-center gap-3 p-3">
+          <div class="flex items-center gap-1">
+            <button type="button" class="btn-secondary btn-sm" @click="shiftDate(-1)" aria-label="Vorheriger Tag">‹</button>
+            <input type="date" class="input w-auto py-1.5" :value="date" @change="setDate($event.target.value)">
+            <button type="button" class="btn-secondary btn-sm" @click="shiftDate(1)" aria-label="Nächster Tag">›</button>
+            <button type="button" class="btn-ghost btn-sm" @click="setDate(today)" x-show="date !== today">Heute</button>
+          </div>
+          <select class="input w-auto py-1.5 text-xs" @change="setDate($event.target.value); $event.target.value = ''" x-show="dates.length">
+            <option value="">Tage mit Slots …</option>
+            <template x-for="d in dates" :key="d.date">
+              <option :value="d.date" x-text="dateOptionLabel(d)"></option>
+            </template>
+          </select>
+          <div class="font-semibold text-stone-900" x-text="longDate(date)"></div>
+
+          <div class="ml-auto flex flex-wrap items-center gap-4 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="hideDone" @change="savePrefs()"> Fertige/Stornierte ausblenden</label>
+            <label class="flex items-center gap-2"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="showEmpty" @change="savePrefs()"> Leere Slots zeigen</label>
+            <button type="button" class="btn-ghost btn-sm" @click="toggleSound()" x-text="sound ? '🔔 Ton an' : '🔕 Ton aus'"></button>
+            <button type="button" class="btn-sm btn" x-show="settings" @click="toggleOrdering()"
+                    :class="settings?.ordering_enabled ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-100' : 'bg-amber-100 text-amber-900 ring-1 ring-amber-300 hover:bg-amber-200'"
+                    x-text="settings?.ordering_enabled ? 'Bestellannahme: AN' : 'Bestellannahme: PAUSIERT'"></button>
+          </div>
+        </div>
+
+        <!-- Tageswerte -->
+        <div class="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div class="card p-4"><p class="text-xs text-stone-500 uppercase">Bestellungen</p><p class="text-2xl font-bold" x-text="dayStats.orders"></p></div>
+          <div class="card p-4"><p class="text-xs text-stone-500 uppercase">Noch offen</p><p class="text-2xl font-bold text-amber-600" x-text="dayStats.open"></p></div>
+          <div class="card p-4"><p class="text-xs text-stone-500 uppercase">Pizzen</p><p class="text-2xl font-bold" x-text="dayStats.pizzas"></p></div>
+          <div class="card p-4"><p class="text-xs text-stone-500 uppercase">Umsatz</p><p class="text-2xl font-bold" x-text="money(dayStats.revenue)"></p></div>
+        </div>
+
+        <div x-show="loadingOrders && daySlots.length === 0" class="py-10 text-center text-stone-500">Lade Bestellungen …</div>
+        <div x-show="!loadingOrders && daySlots.length === 0" class="card p-8 text-center text-stone-500">
+          Für diesen Tag gibt es keine Zeitslots. <button type="button" class="font-semibold text-brand-700 hover:underline" @click="tab = 'settings'; settingsTab = 'slots'; setSlotDate(date)">Slots anlegen</button>
+        </div>
+        <div x-show="daySlots.length > 0 && visibleSlots.length === 0" class="card p-8 text-center text-stone-500">Noch keine Bestellungen an diesem Tag.</div>
+
+        <div class="space-y-6">
+          <template x-for="slot in visibleSlots" :key="slot.id">
+            <section class="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-stone-200">
+              <!-- Kopfzeile Slot -->
+              <div class="border-b border-stone-200 bg-stone-50 px-4 py-3">
+                <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                  <h2 class="text-xl font-extrabold text-stone-900"><span x-text="slot.time"></span> Uhr</h2>
+                  <div class="min-w-40">
+                    <div class="flex justify-between text-xs text-stone-600"><span>Bestellungen</span><span class="font-semibold" x-text="slot.orders_count + '/' + slot.max_orders"></span></div>
+                    <div class="mt-1 h-1.5 rounded-full bg-stone-200"><div class="h-1.5 rounded-full" :class="barColor(slot.orders_count, slot.max_orders)" :style="`width: ${percent(slot.orders_count, slot.max_orders)}%`"></div></div>
+                  </div>
+                  <div class="min-w-40">
+                    <div class="flex justify-between text-xs text-stone-600"><span>Pizzen</span><span class="font-semibold" x-text="slot.items_count + '/' + slot.max_items"></span></div>
+                    <div class="mt-1 h-1.5 rounded-full bg-stone-200"><div class="h-1.5 rounded-full" :class="barColor(slot.items_count, slot.max_items)" :style="`width: ${percent(slot.items_count, slot.max_items)}%`"></div></div>
+                  </div>
+                  <span x-show="slot.locked" class="badge bg-stone-800 text-white">🔒 gesperrt</span>
+                </div>
+                <div class="mt-2 text-sm" x-show="slot.summary.pizzas.length || slot.summary.others.length">
+                  <p x-show="slot.summary.pizzas.length"><span class="font-semibold text-stone-900">Gesamt in diesem Slot:</span> <span class="font-medium text-brand-800" x-text="summaryText(slot.summary.pizzas)"></span></p>
+                  <p x-show="slot.summary.others.length" class="text-stone-600"><span class="font-semibold">Sonstiges:</span> <span x-text="summaryText(slot.summary.others)"></span></p>
+                </div>
+              </div>
+
+              <!-- Bestellkarten -->
+              <div class="grid gap-4 p-4 md:grid-cols-2 2xl:grid-cols-3">
+                <template x-for="order in slotOrders(slot)" :key="order.id">
+                  <article class="flex flex-col rounded-lg border border-l-4 border-stone-200 bg-white p-4"
+                           :class="[status(order).border, order.status === 'cancelled' ? 'opacity-60' : '']">
+                    <div class="flex items-start justify-between gap-2">
+                      <div>
+                        <p class="text-lg font-extrabold text-stone-900"><span x-text="'#' + order.id"></span> <span class="font-semibold" x-text="order.customer_name"></span></p>
+                        <p class="text-xs text-stone-500">Eingang <span x-text="time(order.created_at)"></span> Uhr</p>
+                      </div>
+                      <span class="badge shrink-0 ring-1" :class="status(order).badge" x-text="status(order).label"></span>
+                    </div>
+
+                    <div class="mt-3 space-y-1 text-sm">
+                      <p>
+                        <span x-show="order.type === 'pickup'" class="badge bg-stone-100 text-stone-700">🏃 Abholung</span>
+                        <span x-show="order.type === 'delivery'" class="badge bg-violet-100 text-violet-800">🛵 Lieferung</span>
+                      </p>
+                      <p x-show="order.type === 'delivery'" class="font-medium text-stone-900" x-text="[order.street, order.city].filter(Boolean).join(', ')"></p>
+                      <p class="flex flex-wrap gap-x-4">
+                        <a class="text-stone-700 hover:underline" :href="'tel:' + order.phone" x-text="'📞 ' + order.phone"></a>
+                        <a class="truncate text-stone-500 hover:underline" :href="'mailto:' + order.email" x-text="order.email"></a>
+                      </p>
+                    </div>
+
+                    <div x-show="order.note" class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                      <span class="font-semibold">Notiz:</span> <span class="whitespace-pre-line" x-text="order.note"></span>
+                    </div>
+
+                    <ul class="mt-3 flex-1 space-y-0.5 text-base">
+                      <template x-for="(item, idx) in order.items" :key="idx">
+                        <li class="flex justify-between gap-3" :class="item.counts_capacity ? 'font-semibold text-stone-900' : 'text-stone-600'">
+                          <span><span x-text="item.quantity + 'x'"></span> <span x-text="item.name"></span></span>
+                          <span class="text-sm font-normal text-stone-500" x-text="money(item.price_cents * item.quantity)"></span>
+                        </li>
+                      </template>
+                    </ul>
+                    <div class="mt-2 flex justify-between border-t border-stone-100 pt-2 text-sm">
+                      <span class="text-stone-500">Summe</span>
+                      <span class="font-bold" x-text="money(order.total_cents)"></span>
+                    </div>
+
+                    <!-- Benachrichtigungen -->
+                    <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                      <span>Bestätigung:
+                        <span class="font-semibold" :class="notif(order, 'confirmation', 'whatsapp').cls" :title="notif(order, 'confirmation', 'whatsapp').title">WA <span x-text="notif(order, 'confirmation', 'whatsapp').icon"></span></span>
+                        <span class="ml-1 font-semibold" :class="notif(order, 'confirmation', 'email').cls" :title="notif(order, 'confirmation', 'email').title">Mail <span x-text="notif(order, 'confirmation', 'email').icon"></span></span>
+                      </span>
+                      <span>Fertig Meldung:
+                        <span class="font-semibold" :class="notif(order, 'ready', 'whatsapp').cls" :title="notif(order, 'ready', 'whatsapp').title">WA <span x-text="notif(order, 'ready', 'whatsapp').icon"></span></span>
+                        <span class="ml-1 font-semibold" :class="notif(order, 'ready', 'email').cls" :title="notif(order, 'ready', 'email').title">Mail <span x-text="notif(order, 'ready', 'email').icon"></span></span>
+                      </span>
+                    </div>
+                    <template x-for="e in notifErrors(order)" :key="e.kind + e.channel">
+                      <p class="mt-1 text-xs text-brand-700">
+                        ⚠ <span x-text="(e.kind === 'ready' ? 'Fertig Meldung ' : 'Bestätigung ') + (e.channel === 'whatsapp' ? 'WhatsApp' : 'E-Mail') + ': ' + e.error"></span>
+                      </p>
+                    </template>
+                    <div class="mt-1 flex flex-wrap gap-2" x-show="hasFailed(order, 'ready') || hasFailed(order, 'confirmation')">
+                      <button type="button" class="btn-secondary btn-sm" x-show="hasFailed(order, 'ready')" :disabled="!!busy[order.id]" @click="resend(order, 'ready')">Fertig Meldung erneut senden</button>
+                      <button type="button" class="btn-secondary btn-sm" x-show="hasFailed(order, 'confirmation')" :disabled="!!busy[order.id]" @click="resend(order, 'confirmation')">Bestätigung erneut senden</button>
+                    </div>
+
+                    <!-- Aktionen -->
+                    <div class="mt-4 flex flex-wrap items-center gap-2">
+                      <button type="button" x-show="order.status === 'open'" class="btn bg-sky-600 text-white hover:bg-sky-700"
+                              :disabled="!!busy[order.id]" @click="setStatus(order, 'preparing')">In Zubereitung</button>
+                      <button type="button" x-show="order.status === 'open' || order.status === 'preparing'" class="btn bg-emerald-600 text-white hover:bg-emerald-700"
+                              :disabled="!!busy[order.id]" @click="setStatus(order, 'ready')">
+                        <span x-show="busy[order.id] !== 'ready'">✓ Fertig</span>
+                        <span x-show="busy[order.id] === 'ready'">Sende Benachrichtigungen …</span>
+                      </button>
+                      <select class="input ml-auto w-auto py-1 text-xs" :value="order.status" :disabled="!!busy[order.id]"
+                              @change="setStatus(order, $event.target.value)" aria-label="Status ändern">
+                        <option value="open">Offen</option>
+                        <option value="preparing">In Zubereitung</option>
+                        <option value="ready">Fertig</option>
+                        <option value="cancelled">Storniert</option>
+                      </select>
+                    </div>
+                  </article>
+                </template>
+                <p x-show="slotOrders(slot).length === 0" class="text-sm text-stone-400 md:col-span-2 2xl:col-span-3">
+                  <span x-text="slot.orders.length ? 'Alle Bestellungen erledigt.' : 'Keine Bestellungen.'"></span>
+                </p>
+              </div>
+            </section>
+          </template>
+        </div>
+
+        <p x-show="!showEmpty && emptySlots.length && daySlots.length" class="mt-4 text-sm text-stone-500">
+          Slots ohne Bestellungen: <span x-text="emptySlots.map((s) => s.time + (s.locked ? ' (gesperrt)' : '')).join(', ')"></span>
+        </p>
+      </section>
+
+      <!-- ===================== TAB 2: SPEISEKARTE ===================== -->
+      <section x-show="tab === 'menu'" class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        <div class="space-y-6">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-xl font-bold text-stone-900">Speisekarte</h2>
+              <p class="text-sm text-stone-500">"Zählt als Pizza" bedeutet: zählt für die Slot Kapazität und die Liefer Mindestmenge.</p>
+            </div>
+            <button type="button" class="btn-primary" @click="openItem(null)">+ Neuer Artikel</button>
+          </div>
+
+          <template x-for="cat in categories" :key="cat.id ?? 'none'">
+            <div class="card overflow-hidden">
+              <div class="flex items-center justify-between border-b border-stone-200 bg-stone-50 px-4 py-2">
+                <h3 class="font-semibold text-stone-900" x-text="cat.name"></h3>
+                <button type="button" class="btn-ghost btn-sm" x-show="cat.id !== null" @click="openItem(null, cat.id)">+ Artikel</button>
+              </div>
+              <p x-show="cat.items.length === 0" class="px-4 py-3 text-sm text-stone-400">Noch keine Artikel in dieser Kategorie.</p>
+              <ul class="divide-y divide-stone-100">
+                <template x-for="item in cat.items" :key="item.id">
+                  <li class="flex flex-wrap items-center gap-3 px-4 py-3" :class="!item.available && 'bg-stone-50'">
+                    <div class="min-w-0 flex-1">
+                      <p class="font-medium" :class="item.available ? 'text-stone-900' : 'text-stone-400'">
+                        <span x-text="item.name"></span>
+                        <span x-show="item.counts_capacity" class="badge ml-1 bg-brand-50 text-brand-700" title="Zählt für Kapazität und Liefer Mindestmenge">🍕 Pizza</span>
+                      </p>
+                      <p class="truncate text-sm text-stone-500" x-text="item.description"></p>
+                    </div>
+                    <span class="w-20 text-right font-semibold" x-text="money(item.price_cents)"></span>
+                    <label class="flex w-36 cursor-pointer items-center gap-2 text-sm">
+                      <button type="button" role="switch" :aria-checked="item.available" class="switch" :class="item.available ? 'bg-emerald-500' : 'bg-stone-300'" @click="toggleAvailability(item)">
+                        <span class="switch-knob" :class="item.available ? 'translate-x-5' : 'translate-x-0.5'"></span>
+                      </button>
+                      <span :class="item.available ? 'text-emerald-700' : 'text-stone-500'" x-text="item.available ? 'Verfügbar' : 'Ausverkauft'"></span>
+                    </label>
+                    <div class="flex gap-1">
+                      <button type="button" class="btn-secondary btn-sm" @click="openItem(item)">Bearbeiten</button>
+                      <button type="button" class="btn-ghost btn-sm text-brand-700" @click="deleteItem(item)">Löschen</button>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+        </div>
+
+        <!-- Kategorien -->
+        <div class="card p-4 lg:sticky lg:top-6">
+          <h3 class="font-semibold text-stone-900">Kategorien</h3>
+          <p class="mb-3 text-xs text-stone-500">Reihenfolge über die Zahl (aufsteigend).</p>
+          <ul class="space-y-2">
+            <template x-for="cat in realCategories" :key="cat.id">
+              <li class="flex items-center gap-2">
+                <input class="input w-14 px-2 py-1.5" type="number" x-model.number="cat.sort_order" aria-label="Sortierung">
+                <input class="input py-1.5" x-model="cat.name" aria-label="Name" @keydown.enter.prevent="saveCategory(cat)">
+                <button type="button" class="btn-secondary btn-sm" @click="saveCategory(cat)" title="Speichern">💾</button>
+                <button type="button" class="btn-ghost btn-sm text-brand-700" @click="deleteCategory(cat)" title="Löschen">✕</button>
+              </li>
+            </template>
+          </ul>
+          <form class="mt-4 flex items-center gap-2 border-t border-stone-100 pt-4" @submit.prevent="addCategory()">
+            <input class="input w-14 px-2 py-1.5" type="number" x-model.number="newCategory.sort_order" aria-label="Sortierung">
+            <input class="input py-1.5" x-model="newCategory.name" placeholder="Neue Kategorie" required>
+            <button class="btn-primary btn-sm">Anlegen</button>
+          </form>
+        </div>
+
+        <!-- Artikel Dialog -->
+        <div x-show="itemModal" class="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/50 p-0 sm:items-center sm:p-4" @keydown.escape.window="itemModal = null" @click.self="itemModal = null">
+          <template x-if="itemModal">
+            <form class="max-h-[95vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-6 shadow-2xl sm:rounded-2xl" @submit.prevent="saveItem()">
+              <h3 class="mb-4 text-lg font-bold" x-text="itemModal.id ? 'Artikel bearbeiten' : 'Neuer Artikel'"></h3>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                  <label class="label" for="m-name">Name *</label>
+                  <input id="m-name" class="input" x-model="itemModal.name" required maxlength="100">
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="label" for="m-desc">Zutaten / Beschreibung</label>
+                  <textarea id="m-desc" class="input" rows="2" x-model="itemModal.description" maxlength="500"></textarea>
+                </div>
+                <div>
+                  <label class="label" for="m-price">Preis in € *</label>
+                  <input id="m-price" class="input" x-model="itemModal.price" inputmode="decimal" placeholder="9,50" required>
+                </div>
+                <div>
+                  <label class="label" for="m-cat">Kategorie</label>
+                  <select id="m-cat" class="input" x-model="itemModal.category_id">
+                    <option value="">Ohne Kategorie</option>
+                    <template x-for="cat in realCategories" :key="cat.id">
+                      <option :value="cat.id" :selected="cat.id == itemModal.category_id" x-text="cat.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <div>
+                  <label class="label" for="m-sort">Sortierung</label>
+                  <input id="m-sort" type="number" class="input" x-model.number="itemModal.sort_order">
+                </div>
+                <div class="space-y-2 pt-6">
+                  <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="itemModal.available"> Verfügbar</label>
+                  <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="itemModal.counts_capacity"> Zählt als Pizza</label>
+                </div>
+              </div>
+              <div class="mt-6 flex justify-end gap-2">
+                <button type="button" class="btn-secondary" @click="itemModal = null">Abbrechen</button>
+                <button class="btn-primary" :disabled="itemSaving">Speichern</button>
+              </div>
+            </form>
+          </template>
+        </div>
+      </section>
+
+      <!-- ===================== TAB 3: EINSTELLUNGEN ===================== -->
+      <section x-show="tab === 'settings'">
+        <div class="no-scrollbar mb-5 flex gap-1 overflow-x-auto rounded-lg bg-white p-1 shadow-xs ring-1 ring-stone-200 sm:inline-flex">
+          <template x-for="[key, label] in [['slots', 'Zeitslots'], ['general', 'Bestellannahme'], ['whatsapp', 'WhatsApp (WAHA)'], ['email', 'E-Mail (SMTP)'], ['system', 'Sicherheit & Daten']]" :key="key">
+            <button type="button" @click="settingsTab = key" class="shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition"
+                    :class="settingsTab === key ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'" x-text="label"></button>
+          </template>
+        </div>
+
+        <template x-if="settings">
+          <div>
+            <!-- Zeitslots -->
+            <div x-show="settingsTab === 'slots'" class="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)] xl:items-start">
+              <div class="space-y-6">
+                <form class="card p-5" @submit.prevent="generate()">
+                  <h3 class="font-bold text-stone-900">Slot Generator</h3>
+                  <p class="mb-4 text-sm text-stone-500">Erzeugt Slots im Intervall, inklusive Endzeit. Bereits vorhandene Slots bleiben unverändert.</p>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div><label class="label">Datum von</label><input type="date" class="input" x-model="gen.date_from" required></div>
+                    <div><label class="label">Datum bis</label><input type="date" class="input" x-model="gen.date_to" required></div>
+                    <div class="col-span-2">
+                      <label class="label">Wochentage</label>
+                      <div class="flex flex-wrap gap-1">
+                        <template x-for="[value, label] in weekdayNames" :key="value">
+                          <button type="button" @click="toggleWeekday(value)" class="w-10 rounded-md py-1.5 text-xs font-semibold ring-1"
+                                  :class="gen.weekdays.includes(Number(value)) ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-500 ring-stone-200'" x-text="label"></button>
+                        </template>
+                      </div>
+                    </div>
+                    <div><label class="label">Startzeit</label><input type="time" class="input" x-model="gen.start" required></div>
+                    <div><label class="label">Endzeit</label><input type="time" class="input" x-model="gen.end" required></div>
+                    <div class="col-span-2"><label class="label">Intervall (Minuten)</label><input type="number" min="5" max="720" class="input" x-model.number="gen.interval" required></div>
+                    <div><label class="label">Max. Bestellungen</label><input type="number" min="0" class="input" x-model.number="gen.max_orders" required></div>
+                    <div><label class="label">Max. Pizzen</label><input type="number" min="0" class="input" x-model.number="gen.max_items" required></div>
+                  </div>
+                  <p class="mt-4 text-sm text-stone-600">Vorschau: <strong x-text="genPreview.slots"></strong> Slots an <strong x-text="genPreview.days"></strong> Tagen</p>
+                  <button class="btn-primary mt-3 w-full" :disabled="genPreview.slots === 0">Slots erzeugen</button>
+                </form>
+
+                <form class="card p-5" @submit.prevent="createSingle()">
+                  <h3 class="mb-4 font-bold text-stone-900">Einzelnen Slot anlegen</h3>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div><label class="label">Datum</label><input type="date" class="input" x-model="single.date" required></div>
+                    <div><label class="label">Uhrzeit</label><input type="time" class="input" x-model="single.time" required></div>
+                    <div><label class="label">Max. Bestellungen</label><input type="number" min="0" class="input" x-model.number="single.max_orders" required></div>
+                    <div><label class="label">Max. Pizzen</label><input type="number" min="0" class="input" x-model.number="single.max_items" required></div>
+                  </div>
+                  <button class="btn-secondary mt-4 w-full">Slot anlegen</button>
+                </form>
+              </div>
+
+              <div class="card overflow-hidden">
+                <div class="flex flex-wrap items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-3">
+                  <h3 class="font-bold text-stone-900">Slots am</h3>
+                  <button type="button" class="btn-secondary btn-sm" @click="setSlotDate(plusDays(slotDate, -1))">‹</button>
+                  <input type="date" class="input w-auto py-1" :value="slotDate" @change="setSlotDate($event.target.value)">
+                  <button type="button" class="btn-secondary btn-sm" @click="setSlotDate(plusDays(slotDate, 1))">›</button>
+                  <button type="button" class="btn-ghost btn-sm ml-auto text-brand-700" x-show="slotList.some((s) => s.all_orders === 0)" @click="deleteFreeSlots()">Freie Slots dieses Tages löschen</button>
+                </div>
+                <p x-show="slotList.length === 0" class="p-6 text-center text-sm text-stone-500">Keine Slots an diesem Tag.</p>
+                <div class="overflow-x-auto" x-show="slotList.length">
+                  <table class="w-full min-w-[640px] text-sm">
+                    <thead class="text-left text-xs text-stone-500 uppercase">
+                      <tr class="border-b border-stone-100">
+                        <th class="px-4 py-2">Uhrzeit</th>
+                        <th class="px-2 py-2">Auslastung</th>
+                        <th class="px-2 py-2">Max. Best.</th>
+                        <th class="px-2 py-2">Max. Pizzen</th>
+                        <th class="px-2 py-2">Gesperrt</th>
+                        <th class="px-4 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-stone-100">
+                      <template x-for="slot in slotList" :key="slot.id">
+                        <tr :class="slot.locked ? 'bg-stone-50' : ''">
+                          <td class="px-4 py-2 font-semibold">
+                            <span x-text="slot.time"></span>
+                            <span x-show="slot.past" class="ml-1 text-xs font-normal text-stone-400">(vorbei)</span>
+                          </td>
+                          <td class="px-2 py-2 text-stone-600"><span x-text="slot.orders_count + '/' + slot.max_orders"></span> Best. · <span x-text="slot.items_count + '/' + slot.max_items"></span> Pizzen</td>
+                          <td class="px-2 py-2"><input type="number" min="0" class="input w-20 py-1" :value="slot.max_orders" @change="updateSlot(slot, { max_orders: Number($event.target.value) })"></td>
+                          <td class="px-2 py-2"><input type="number" min="0" class="input w-20 py-1" :value="slot.max_items" @change="updateSlot(slot, { max_items: Number($event.target.value) })"></td>
+                          <td class="px-2 py-2">
+                            <button type="button" role="switch" :aria-checked="slot.locked" class="switch" :class="slot.locked ? 'bg-stone-800' : 'bg-stone-300'" @click="updateSlot(slot, { locked: !slot.locked })">
+                              <span class="switch-knob" :class="slot.locked ? 'translate-x-5' : 'translate-x-0.5'"></span>
+                            </button>
+                          </td>
+                          <td class="px-4 py-2 text-right">
+                            <button type="button" class="btn-ghost btn-sm text-brand-700" :disabled="slot.all_orders > 0" @click="deleteSlot(slot)"
+                                    :title="slot.all_orders > 0 ? 'Slot hat Bestellungen, bitte sperren statt löschen' : 'Slot löschen'">Löschen</button>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bestellannahme & Allgemein -->
+            <form x-show="settingsTab === 'general'" class="card max-w-3xl p-5" @submit.prevent="saveSettings('general')">
+              <h3 class="mb-4 font-bold text-stone-900">Bestellannahme & Allgemein</h3>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="flex items-center gap-3 sm:col-span-2">
+                  <input type="checkbox" class="h-5 w-5 accent-brand-600" x-model="settings.ordering_enabled">
+                  <span class="font-medium">Online Bestellungen annehmen</span>
+                </label>
+                <div class="sm:col-span-2"><label class="label">Hinweis bei pausierter Bestellannahme</label><textarea class="input" rows="2" x-model="settings.closed_message"></textarea></div>
+                <div><label class="label">Name des Shops</label><input class="input" x-model="settings.shop_name" maxlength="80"></div>
+                <div><label class="label">Untertitel</label><input class="input" x-model="settings.shop_subtitle" maxlength="200"></div>
+                <div>
+                  <label class="label">Mindestanzahl Pizzen für Lieferung</label>
+                  <input type="number" min="0" class="input" x-model.number="settings.min_delivery_items">
+                  <p class="mt-1 text-xs text-stone-500">0 = Lieferung immer möglich. Es zählen nur Artikel mit "zählt als Pizza".</p>
+                </div>
+                <div>
+                  <label class="label">Vorlaufzeit in Minuten</label>
+                  <input type="number" min="0" class="input" x-model.number="settings.lead_minutes">
+                  <p class="mt-1 text-xs text-stone-500">Slots, die früher beginnen, sind nicht mehr buchbar.</p>
+                </div>
+                <div><label class="label">Impressum URL</label><input type="url" class="input" x-model="settings.imprint_url" placeholder="https://"></div>
+                <div><label class="label">Datenschutz URL</label><input type="url" class="input" x-model="settings.privacy_url" placeholder="https://"></div>
+              </div>
+              <p class="mt-4 text-xs text-stone-500">Zeitzone des Servers: <span x-text="timezone"></span></p>
+              <button class="btn-primary mt-4" :disabled="saving === 'general'">Speichern</button>
+            </form>
+
+            <!-- WhatsApp -->
+            <div x-show="settingsTab === 'whatsapp'" class="grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+              <form class="card p-5" @submit.prevent="saveSettings('whatsapp')">
+                <h3 class="font-bold text-stone-900">WhatsApp über WAHA</h3>
+                <p class="mb-4 text-sm text-stone-500">Nachrichten gehen per POST an <code class="rounded bg-stone-100 px-1">{Base URL}/api/sendText</code>. Nummern werden automatisch ins Format 491711234567@c.us umgewandelt.</p>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div class="sm:col-span-2"><label class="label">WAHA Base URL</label><input class="input" x-model="settings.waha_url" placeholder="http://waha:3000"></div>
+                  <div><label class="label">Session</label><input class="input" x-model="settings.waha_session" placeholder="default"></div>
+                  <div>
+                    <label class="label">API Key (optional)</label>
+                    <input type="password" class="input" x-model="settings.waha_api_key" autocomplete="new-password"
+                           :placeholder="settings.waha_api_key_set ? 'gespeichert, leer lassen = unverändert' : 'nicht gesetzt'">
+                    <label x-show="settings.waha_api_key_set" class="mt-1 flex items-center gap-2 text-xs text-stone-500">
+                      <input type="checkbox" :checked="clearSecrets.includes('waha_api_key')" @change="toggleClearSecret('waha_api_key')"> gespeicherten Key entfernen
+                    </label>
+                  </div>
+                  <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="settings.wa_ready_enabled"> Nachricht bei "Fertig" senden</label>
+                  <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="settings.wa_confirm_enabled"> Eingangsbestätigung senden</label>
+                  <div class="sm:col-span-2"><label class="label">Vorlage "Fertig" bei Abholung</label><textarea class="input font-mono text-xs" rows="3" x-model="settings.wa_tpl_ready_pickup"></textarea></div>
+                  <div class="sm:col-span-2"><label class="label">Vorlage "Fertig" bei Lieferung</label><textarea class="input font-mono text-xs" rows="3" x-model="settings.wa_tpl_ready_delivery"></textarea></div>
+                  <div class="sm:col-span-2"><label class="label">Vorlage Eingangsbestätigung</label><textarea class="input font-mono text-xs" rows="5" x-model="settings.wa_tpl_confirm"></textarea></div>
+                </div>
+                <p class="mt-3 text-xs text-stone-500">Platzhalter: <span class="font-mono" x-text="placeholders.join('  ')"></span></p>
+                <button class="btn-primary mt-4" :disabled="saving === 'whatsapp'">Speichern</button>
+              </form>
+              <div class="card p-5">
+                <h3 class="font-bold text-stone-900">Testnachricht</h3>
+                <p class="mb-3 text-sm text-stone-500">Nutzt die gespeicherten Einstellungen.</p>
+                <input class="input" x-model="testPhone" placeholder="0171 1234567">
+                <button type="button" class="btn-secondary mt-3 w-full" :disabled="testing === 'whatsapp' || !testPhone" @click="sendTestWhatsapp()" x-text="testing === 'whatsapp' ? 'Sende …' : 'Test senden'"></button>
+                <p x-show="testResult.whatsapp" class="mt-3 rounded-lg p-3 text-sm" :class="testResult.whatsapp?.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-brand-50 text-brand-800'"
+                   x-text="testResult.whatsapp?.ok ? testResult.whatsapp.message : testResult.whatsapp?.error"></p>
+              </div>
+            </div>
+
+            <!-- E-Mail -->
+            <div x-show="settingsTab === 'email'" class="grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+              <form class="card p-5" @submit.prevent="saveSettings('email')">
+                <h3 class="font-bold text-stone-900">E-Mail Versand über SMTP</h3>
+                <p class="mb-4 text-sm text-stone-500">Port 587 mit STARTTLS (Häkchen aus) oder Port 465 mit SSL/TLS (Häkchen an).</p>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div><label class="label">SMTP Host</label><input class="input" x-model="settings.smtp_host" placeholder="smtp.example.com"></div>
+                  <div class="grid grid-cols-[1fr_auto] items-end gap-3">
+                    <div><label class="label">Port</label><input type="number" class="input" x-model.number="settings.smtp_port"></div>
+                    <label class="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="settings.smtp_secure"> SSL/TLS</label>
+                  </div>
+                  <div><label class="label">Benutzer</label><input class="input" x-model="settings.smtp_user" autocomplete="off"></div>
+                  <div>
+                    <label class="label">Passwort</label>
+                    <input type="password" class="input" x-model="settings.smtp_pass" autocomplete="new-password"
+                           :placeholder="settings.smtp_pass_set ? 'gespeichert, leer lassen = unverändert' : 'nicht gesetzt'">
+                    <label x-show="settings.smtp_pass_set" class="mt-1 flex items-center gap-2 text-xs text-stone-500">
+                      <input type="checkbox" :checked="clearSecrets.includes('smtp_pass')" @change="toggleClearSecret('smtp_pass')"> gespeichertes Passwort entfernen
+                    </label>
+                  </div>
+                  <div><label class="label">Absender E-Mail</label><input type="email" class="input" x-model="settings.smtp_from" placeholder="bestellung@example.com"></div>
+                  <div><label class="label">Absender Name</label><input class="input" x-model="settings.smtp_from_name" :placeholder="settings.shop_name"></div>
+                  <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="settings.mail_ready_enabled"> Mail bei "Fertig" senden</label>
+                  <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="h-4 w-4 accent-brand-600" x-model="settings.mail_confirm_enabled"> Eingangsbestätigung senden</label>
+                  <div class="sm:col-span-2"><label class="label">Betreff Eingangsbestätigung</label><input class="input" x-model="settings.mail_tpl_confirm_subject"></div>
+                  <div class="sm:col-span-2"><label class="label">Text Eingangsbestätigung</label><textarea class="input font-mono text-xs" rows="8" x-model="settings.mail_tpl_confirm_body"></textarea></div>
+                  <div class="sm:col-span-2"><label class="label">Betreff "Fertig"</label><input class="input" x-model="settings.mail_tpl_ready_subject"></div>
+                  <div><label class="label">Text "Fertig" bei Abholung</label><textarea class="input font-mono text-xs" rows="6" x-model="settings.mail_tpl_ready_pickup_body"></textarea></div>
+                  <div><label class="label">Text "Fertig" bei Lieferung</label><textarea class="input font-mono text-xs" rows="6" x-model="settings.mail_tpl_ready_delivery_body"></textarea></div>
+                </div>
+                <p class="mt-3 text-xs text-stone-500">Platzhalter: <span class="font-mono" x-text="placeholders.join('  ')"></span></p>
+                <button class="btn-primary mt-4" :disabled="saving === 'email'">Speichern</button>
+              </form>
+              <div class="card p-5">
+                <h3 class="font-bold text-stone-900">Testmail</h3>
+                <p class="mb-3 text-sm text-stone-500">Nutzt die gespeicherten Einstellungen.</p>
+                <input type="email" class="input" x-model="testEmail" placeholder="du@example.com">
+                <button type="button" class="btn-secondary mt-3 w-full" :disabled="testing === 'email' || !testEmail" @click="sendTestEmail()" x-text="testing === 'email' ? 'Sende …' : 'Test senden'"></button>
+                <p x-show="testResult.email" class="mt-3 rounded-lg p-3 text-sm" :class="testResult.email?.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-brand-50 text-brand-800'"
+                   x-text="testResult.email?.ok ? testResult.email.message : testResult.email?.error"></p>
+              </div>
+            </div>
+
+            <!-- Sicherheit & Daten -->
+            <div x-show="settingsTab === 'system'" class="grid max-w-4xl gap-6 md:grid-cols-2 md:items-start">
+              <form class="card p-5" @submit.prevent="changePassword()">
+                <h3 class="mb-4 font-bold text-stone-900">Admin Passwort ändern</h3>
+                <label class="label">Aktuelles Passwort</label>
+                <input type="password" class="input mb-3" x-model="pw.current" autocomplete="current-password" required>
+                <label class="label">Neues Passwort (mind. 8 Zeichen)</label>
+                <input type="password" class="input mb-3" x-model="pw.next" autocomplete="new-password" minlength="8" required>
+                <label class="label">Neues Passwort wiederholen</label>
+                <input type="password" class="input" x-model="pw.confirm" autocomplete="new-password" minlength="8" required>
+                <button class="btn-primary mt-4">Passwort ändern</button>
+              </form>
+              <form class="card p-5" @submit.prevent="cleanup()">
+                <h3 class="font-bold text-stone-900">Datenpflege</h3>
+                <p class="mb-4 text-sm text-stone-500">Löscht Bestellungen inklusive Kundendaten und Slots, deren Datum älter ist als die angegebene Anzahl Tage.</p>
+                <label class="label">Älter als (Tage)</label>
+                <input type="number" min="1" class="input" x-model.number="cleanupDays" required>
+                <button class="btn-secondary mt-4 text-brand-700">Alte Daten löschen</button>
+              </form>
+            </div>
+          </div>
+        </template>
+      </section>
+    </main>
+  </div>
+</div>
+</body>
+</html>

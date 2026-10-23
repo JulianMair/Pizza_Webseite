@@ -1,0 +1,9 @@
+node_modules
+data
+waha-data
+public/css/app.css
+test
+.git
+.env
+*.log
+README.md

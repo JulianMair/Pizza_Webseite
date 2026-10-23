@@ -1,0 +1,83 @@
+@import "tailwindcss" source("../public");
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-brand-50: #fef3f2;
+  --color-brand-100: #fee4e2;
+  --color-brand-200: #fecdca;
+  --color-brand-300: #fda29b;
+  --color-brand-400: #f97066;
+  --color-brand-500: #f04438;
+  --color-brand-600: #d92d20;
+  --color-brand-700: #b42318;
+  --color-brand-800: #912018;
+  --color-brand-900: #7a271a;
+}
+
+@layer base {
+  [x-cloak] {
+    display: none !important;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@utility input {
+  @apply block w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 shadow-xs placeholder:text-stone-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-hidden disabled:bg-stone-100;
+}
+
+@utility input-error {
+  @apply border-brand-500 ring-2 ring-brand-500/20;
+}
+
+@utility label {
+  @apply mb-1 block text-sm font-medium text-stone-700;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility btn-primary {
+  @apply btn bg-brand-600 text-white shadow-xs hover:bg-brand-700 disabled:hover:bg-brand-600;
+}
+
+@utility btn-secondary {
+  @apply btn border border-stone-300 bg-white text-stone-700 shadow-xs hover:bg-stone-50;
+}
+
+@utility btn-ghost {
+  @apply btn text-stone-600 hover:bg-stone-100;
+}
+
+@utility btn-sm {
+  @apply px-3 py-1.5 text-xs;
+}
+
+@utility card {
+  @apply rounded-xl bg-white shadow-xs ring-1 ring-stone-200;
+}
+
+@utility badge {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+}
+
+@utility switch {
+  @apply relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition;
+}
+
+@utility switch-knob {
+  @apply inline-block h-5 w-5 rounded-full bg-white shadow transition;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

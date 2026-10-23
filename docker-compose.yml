@@ -1,0 +1,53 @@
+services:
+  app:
+    build: .
+    image: pizza-vorbestellung:latest
+    container_name: pizza-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Berlin}
+      TZ: ${APP_TIMEZONE:-Europe/Berlin}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      ORDER_RATE_LIMIT: ${ORDER_RATE_LIMIT:-60}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      # Vorbelegung der Integrationen, im Admin Bereich jederzeit änderbar
+      WAHA_URL: ${WAHA_URL:-http://waha:3000}
+      WAHA_SESSION: ${WAHA_SESSION:-default}
+      WAHA_API_KEY: ${WAHA_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+    volumes:
+      - ./data:/app/data
+
+  # Optional: WhatsApp HTTP API. Start mit "docker compose --profile waha up -d"
+  # oder COMPOSE_PROFILES=waha in der .env Datei setzen.
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: pizza-waha
+    profiles: ["waha"]
+    restart: unless-stopped
+    # Dashboard (QR Code scannen) standardmäßig nur vom Host erreichbar.
+    # Für Zugriff aus dem Netz WAHA_BIND=0.0.0.0 setzen und ein starkes Passwort vergeben.
+    ports:
+      - "${WAHA_BIND:-127.0.0.1}:${WAHA_PORT:-3001}:3000"
+    environment:
+      WAHA_API_KEY: ${WAHA_API_KEY:-}
+      WAHA_DASHBOARD_ENABLED: "true"
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME:-admin}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:-}
+      WHATSAPP_SWAGGER_USERNAME: ${WAHA_DASHBOARD_USERNAME:-admin}
+      WHATSAPP_SWAGGER_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:-}
+    volumes:
+      - ./waha-data/sessions:/app/.sessions
+      - ./waha-data/media:/app/.media

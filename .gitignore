@@ -1,0 +1,7 @@
+node_modules/
+data/
+waha-data/
+public/css/app.css
+.env
+*.log
+.DS_Store
